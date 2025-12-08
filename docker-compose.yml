@@ -24,27 +24,6 @@ services:
       - web_network
     restart: unless-stopped
 
-#  php-fpm:
-#    image: php:8.3-fpm
-#    container_name: php_fpm_server
-#    build:
-#      context: ./docker/php-fpm
-#      dockerfile: Dockerfile
-#    volumes:
-#      # Файлы сайта
-#      - ./website:/var/www/html
-#      # Конфигурационные файлы PHP
-#      - ./configs/php/php.ini:/usr/local/etc/php/php.ini:ro
-#      - ./configs/php/www.conf:/usr/local/etc/php-fpm.d/www.conf:ro
-#      # Логи выводим наружу
-#      - ./logs/php-fpm:/var/log/php-fpm
-#    environment:
-#      - TZ=Europe/Moscow
-#    networks:
-#      - web_network
-#      - db_network
-#    restart: unless-stopped
-
 
   webadmin-app:
     container_name: webadmin-app
