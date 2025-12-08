@@ -6,7 +6,7 @@
 
 INSTALL_DIR="/var/reverse_proxy"
 BACKUP_DIR="/var/reverse_proxy_backup_$(date +%Y%m%d_%H%M%S)"
-DOWNLOAD_URL="https://github.com/codeitnos/reverse_proxy/archive/refs/tags/latest.zip"
+DOWNLOAD_URL="https://github.com/itnos/reverse_proxy/archive/refs/tags/latest.zip"
 
 echo "============================================"
 echo "Обновление reverse_proxy"
