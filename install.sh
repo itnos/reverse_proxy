@@ -115,7 +115,7 @@ pct exec $CTID -- bash -c "
     # Скачивание и установка reverse_proxy
     echo '=== Скачивание reverse_proxy ==='
     cd /var
-    wget https://github.com/codeitnos/reverse_proxy/archive/refs/tags/latest.zip -O reverse_proxy.zip
+    wget https://github.com/itnos/reverse_proxy/archive/refs/tags/latest.zip -O reverse_proxy.zip
     unzip -q reverse_proxy.zip -d tmp_reverse_proxy
     rm -rf reverse_proxy
     mv tmp_reverse_proxy/* reverse_proxy
