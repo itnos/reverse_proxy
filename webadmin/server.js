@@ -10,7 +10,15 @@ const archiver = require('archiver');
 const AdmZip = require('adm-zip');
 const multer = require('multer');
 const https = require('https');
+const urlModule = require('url');
 const execPromise = util.promisify(exec);
+
+// Конвертация IDN домена в Punycode (ASCII-совместимый формат)
+// Например: вашсад68.рф -> xn--68-6kcaio3g9b.xn--p1ai
+function toASCIIDomain(domain) {
+    const ascii = urlModule.domainToASCII(domain);
+    return ascii || domain;
+}
 const SyncScheduler = require('./sync-scheduler');
 
 const app = express();
@@ -120,7 +128,8 @@ async function getServerExternalIp() {
 // Функция для получения Zone ID из CloudFlare
 async function getCloudFlareZoneId(domain, token) {
     try {
-        const response = await cloudflareRequest('GET', `/client/v4/zones?name=${domain}`, token);
+        const asciiDomain = toASCIIDomain(domain);
+        const response = await cloudflareRequest('GET', `/client/v4/zones?name=${asciiDomain}`, token);
 
         if (response.success && response.result && response.result.length > 0) {
             return response.result[0].id;
@@ -135,7 +144,8 @@ async function getCloudFlareZoneId(domain, token) {
 // Функция для получения A-записи из CloudFlare
 async function getCloudFlareARecord(zoneId, recordName, token) {
     try {
-        const response = await cloudflareRequest('GET', `/client/v4/zones/${zoneId}/dns_records?type=A&name=${recordName}`, token);
+        const asciiName = toASCIIDomain(recordName);
+        const response = await cloudflareRequest('GET', `/client/v4/zones/${zoneId}/dns_records?type=A&name=${asciiName}`, token);
 
         if (response.success && response.result && response.result.length > 0) {
             return response.result[0];
@@ -152,7 +162,7 @@ async function createCloudFlareARecord(zoneId, subdomain, ip, token) {
     try {
         const data = {
             type: 'A',
-            name: subdomain,
+            name: toASCIIDomain(subdomain),
             content: ip,
             proxied: false
         };
@@ -170,7 +180,7 @@ async function updateCloudFlareARecord(zoneId, recordId, subdomain, ip, token) {
     try {
         const data = {
             type: 'A',
-            name: subdomain,
+            name: toASCIIDomain(subdomain),
             content: ip,
             proxied: false
         };
@@ -258,9 +268,10 @@ function saveItems() {
 function checkSslCertificate(domain) {
     try {
         const rootDomain = getRootDomain(domain);
+        const asciiRoot = toASCIIDomain(rootDomain);
         const certPaths = [
-            path.join(ACME_DIR, `*.${rootDomain}_ecc`),
-            path.join(ACME_DIR, `*.${rootDomain}`)
+            path.join(ACME_DIR, `*.${asciiRoot}_ecc`),
+            path.join(ACME_DIR, `*.${asciiRoot}`)
         ];
 
         for (const certPath of certPaths) {
@@ -330,11 +341,12 @@ function createNginxConfig(domain, dest, ssl = false) {
         template = template.replace(/{destination}/g, dest);
         template = template.replace(/{new_host}/g, newHost);
 
-        // Для SSL-шаблона также заменяем {domain} на корневой домен
+        // Для SSL-шаблона также заменяем {domain} на корневой домен (в Punycode для путей к сертификатам)
         if (ssl) {
             const rootDomain = getRootDomain(domain);
-            template = template.replace(/{domain}/g, rootDomain);
-            console.log(`🔐 Используется SSL-шаблон. Корневой домен: ${rootDomain}`);
+            const asciiRootDomain = toASCIIDomain(rootDomain);
+            template = template.replace(/{domain}/g, asciiRootDomain);
+            console.log(`🔐 Используется SSL-шаблон. Корневой домен: ${rootDomain} (Punycode: ${asciiRootDomain})`);
         }
 
         // Сохраняем конфиг
@@ -1433,7 +1445,10 @@ app.post('/api/get-ssl-certificate', requireAuth, async (req, res) => {
         console.log('🔐 Начало процесса получения SSL-сертификата через CloudFlare...');
         console.log(`   Домен: ${domain}`);
 
-        const issueCommand = `docker exec -e CF_Token='${userData.cf_token}' acme_sh acme.sh --issue --dns dns_cf -d *.${domain} -d ${domain} --server letsencrypt`;
+        const asciiDomain = toASCIIDomain(domain);
+        console.log(`   Punycode: ${asciiDomain}`);
+
+        const issueCommand = `docker exec -e CF_Token='${userData.cf_token}' acme_sh acme.sh --issue --dns dns_cf -d *.${asciiDomain} -d ${asciiDomain} --server letsencrypt`;
 
         let issueResult;
         let alreadyExists = false;
@@ -1466,11 +1481,11 @@ app.post('/api/get-ssl-certificate', requireAuth, async (req, res) => {
             }
         }
 
-        const certPath = `/acme.sh/*.${domain}_ecc`;
+        const certPath = `/acme.sh/*.${asciiDomain}_ecc`;
         const certFiles = {
             fullchain: `${certPath}/fullchain.cer`,
-            key: `${certPath}/*.${domain}.key`,
-            cert: `${certPath}/*.${domain}.cer`,
+            key: `${certPath}/*.${asciiDomain}.key`,
+            cert: `${certPath}/*.${asciiDomain}.cer`,
             ca: `${certPath}/ca.cer`
         };
 
@@ -1510,9 +1525,10 @@ app.post('/api/delete-ssl-certificate', requireAuth, async (req, res) => {
         console.log('🗑️  Начало удаления SSL-сертификата для домена:', domain);
 
         const rootDomain = getRootDomain(domain);
+        const asciiRoot = toASCIIDomain(rootDomain);
         const certPaths = [
-            path.join(ACME_DIR, `*.${rootDomain}_ecc`),
-            path.join(ACME_DIR, `*.${rootDomain}`)
+            path.join(ACME_DIR, `*.${asciiRoot}_ecc`),
+            path.join(ACME_DIR, `*.${asciiRoot}`)
         ];
 
         let deleted = false;
