@@ -337,7 +337,7 @@ function createNginxConfig(domain, dest, ssl = false) {
         }
 
         // Заменяем параметры
-        template = template.replace(/{host}/g, domain);
+        template = template.replace(/{host}/g, toASCIIDomain(domain));
         template = template.replace(/{destination}/g, dest);
         template = template.replace(/{new_host}/g, newHost);
 
