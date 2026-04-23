@@ -111,6 +111,28 @@
             gap: 16px;
         }
 
+        .idle-timer {
+            font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+            font-size: 13px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            background: var(--status-inactive-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            white-space: nowrap;
+            transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+        }
+        .idle-timer.warn {
+            background: var(--warning-bg);
+            color: var(--warning);
+            border-color: var(--warning);
+        }
+        .idle-timer.critical {
+            background: var(--danger-bg);
+            color: #fff;
+            border-color: var(--danger);
+        }
+
         .header-menu-wrapper {
             position: relative;
             display: flex;
@@ -989,6 +1011,9 @@
     <div class="header">
         <h1>Reverse Proxy Manager</h1>
         <div class="header-menu-wrapper">
+            <span id="idleTimer" class="idle-timer" title="Время до автоматического выхода. Сбрасывается по клику мышью или тапу.">
+                ⏱ До выхода: --:--
+            </span>
             <button class="theme-toggle" onclick="toggleTheme()" title="Переключить тему" aria-label="Переключить тему">
                 <span id="themeIcon">🌙</span>
             </button>
@@ -1066,23 +1091,41 @@
     // Вызываем при загрузке страницы
     loadAppVersion();
 
-    // Авто-выход по бездействию (30 минут)
+    // Авто-выход по бездействию (30 минут) + индикатор оставшегося времени
     (function setupIdleLogout() {
         const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
         let idleTimer = null;
+        let deadline = Date.now() + IDLE_TIMEOUT_MS;
+
         function doLogout() {
             window.location.href = '/logout';
         }
         function resetIdleTimer() {
             if (idleTimer) clearTimeout(idleTimer);
+            deadline = Date.now() + IDLE_TIMEOUT_MS;
             idleTimer = setTimeout(doLogout, IDLE_TIMEOUT_MS);
+            updateIndicator();
         }
-        const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'];
+        function updateIndicator() {
+            const el = document.getElementById('idleTimer');
+            if (!el) return;
+            const left = Math.max(0, deadline - Date.now());
+            const totalSec = Math.floor(left / 1000);
+            const mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
+            const ss = String(totalSec % 60).padStart(2, '0');
+            el.textContent = `⏱ До выхода: ${mm}:${ss}`;
+            el.classList.remove('warn', 'critical');
+            if (totalSec <= 60) {
+                el.classList.add('critical');
+            } else if (totalSec <= 300) {
+                el.classList.add('warn');
+            }
+        }
+        // Сбрасываем таймер только на клики (обновление страницы сбрасывает таймер автоматически, т.к. скрипт запускается заново)
+        const events = ['mousedown', 'touchstart'];
         events.forEach(ev => window.addEventListener(ev, resetIdleTimer, { passive: true }));
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) resetIdleTimer();
-        });
         resetIdleTimer();
+        setInterval(updateIndicator, 1000);
     })();
 </script>
 
