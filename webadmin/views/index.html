@@ -1122,6 +1122,12 @@
                     <span>Запись активна</span>
                 </label>
             </div>
+            <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" name="skip_auto_dns" style="width: auto; cursor: pointer;">
+                    <span>🚫 Не обновлять автоматически DNS</span>
+                </label>
+            </div>
             <button type="submit" class="btn btn-primary">Добавить запись</button>
         </form>
     </div>
@@ -1162,6 +1168,12 @@
                 <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
                     <input type="checkbox" id="editActive" style="width: auto; cursor: pointer;">
                     <span>Запись активна</span>
+                </label>
+            </div>
+            <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="editSkipAutoDns" style="width: auto; cursor: pointer;">
+                    <span>🚫 Не обновлять автоматически DNS</span>
                 </label>
             </div>
             <button type="submit" class="btn btn-primary">Сохранить изменения</button>
@@ -1895,7 +1907,8 @@
             item3: formData.get('item3'),
             notes: formData.get('notes'),
             ssl: formData.get('ssl') === 'on',
-            active: formData.get('active') === 'on'
+            active: formData.get('active') === 'on',
+            skip_auto_dns: formData.get('skip_auto_dns') === 'on'
         };
 
         const response = await fetch('/api/items', {
@@ -1979,15 +1992,19 @@
             const ipMismatch = serverIp && item.cf_ip && serverIp !== item.cf_ip;
             const ipClass = ipMismatch ? 'mismatch' : '';
 
+            // Если запись помечена "не обновлять автоматически DNS" - блокируем принудительные кнопки обновления
+            const updateDisabled = item.skip_auto_dns ? 'disabled style="opacity: 0.45; cursor: not-allowed;" title="Авто-DNS отключён для этой записи - снимите галочку чтобы обновлять"' : 'title="Обновить IP"';
+
             if (hasCachedDns) {
                 dnsInfoHtml = `
                     <div class="dns-info">
                         <span class="dns-status exists">☁️ DNS настроен</span>
                         <span class="dns-ip ${ipClass}">IP: ${item.cf_ip || 'N/A'}</span>
                         ${ipMismatch ? '<span style="color: #856404;">⚠️ IP не совпадает с сервером (' + serverIp + ')</span>' : ''}
+                        ${item.skip_auto_dns ? '<span style="color: #6c757d; font-size: 12px;">🚫 Авто-синхронизация DNS отключена</span>' : ''}
                         <div class="dns-actions">
                             <button class="dns-btn" onclick="syncDns(${item.id})" title="Синхронизировать DNS">🔄 Sync</button>
-                            <button class="dns-btn update" onclick="updateDns(${item.id}, '${escapeHtml(item.domain)}')" title="Обновить IP">📝 Обновить IP</button>
+                            <button class="dns-btn update" ${item.skip_auto_dns ? 'disabled style="opacity: 0.45; cursor: not-allowed;" title="Авто-DNS отключён для этой записи - снимите галочку чтобы обновлять"' : 'onclick="updateDns(' + item.id + ', \'' + escapeHtml(item.domain) + '\')" title="Обновить IP"'}>📝 Обновить IP</button>
                             <button class="dns-btn delete" onclick="deleteDns(${item.id}, '${escapeHtml(item.domain)}')" title="Удалить DNS запись">🗑️ Удалить DNS</button>
                         </div>
                     </div>
@@ -1996,9 +2013,10 @@
                 dnsInfoHtml = `
                     <div class="dns-info">
                         <span class="dns-status not-exists">❓ DNS не проверен</span>
+                        ${item.skip_auto_dns ? '<span style="color: #6c757d; font-size: 12px;">🚫 Авто-синхронизация DNS отключена</span>' : ''}
                         <div class="dns-actions">
                             <button class="dns-btn" onclick="syncDns(${item.id})" title="Проверить DNS">🔄 Проверить</button>
-                            <button class="dns-btn create" onclick="createDns(${item.id}, '${escapeHtml(item.domain)}')" title="Создать DNS запись">➕ Создать DNS</button>
+                            <button class="dns-btn create" ${item.skip_auto_dns ? 'disabled style="opacity: 0.45; cursor: not-allowed;" title="Авто-DNS отключён для этой записи - снимите галочку чтобы создавать/обновлять"' : 'onclick="createDns(' + item.id + ', \'' + escapeHtml(item.domain) + '\')" title="Создать DNS запись"'}>➕ Создать DNS</button>
                         </div>
                     </div>
                 `;
@@ -2030,6 +2048,13 @@
                   ${item.active ? 'Активна' : 'Неактивна'}
                 </span>
               </div>
+              <div class="status-item">
+                <input type="checkbox" class="status-checkbox" ${item.skip_auto_dns ? 'checked' : ''}
+                       onchange="toggleSkipAutoDns(${item.id}, this.checked)">
+                <span class="status-label" onclick="this.previousElementSibling.click()" title="Запись не будет обновляться автоматической синхронизацией DNS">
+                  ${item.skip_auto_dns ? '🚫 Авто-DNS отключён' : '✅ Авто-DNS включён'}
+                </span>
+              </div>
 
             </div>
               ${notesHtml}
@@ -2037,7 +2062,7 @@
           <div class="item-actions">
             <button class="item-menu-btn" onclick="toggleItemMenu(${item.id}, event)">⋮</button>
             <div class="item-dropdown-menu" id="itemMenu${item.id}">
-              <div class="item-dropdown-item" onclick="openEditModal(${item.id}, '${escapeHtml(item.domain)}', '${escapeHtml(item.dest)}', '${escapeHtml(item.item3)}', ${item.ssl}, ${item.active}, '${escapeForJs(item.notes || '')}'); closeItemMenu(${item.id});">
+              <div class="item-dropdown-item" onclick="openEditModal(${item.id}, '${escapeHtml(item.domain)}', '${escapeHtml(item.dest)}', '${escapeHtml(item.item3)}', ${item.ssl}, ${item.active}, '${escapeForJs(item.notes || '')}', ${!!item.skip_auto_dns}); closeItemMenu(${item.id});">
                 ✏️ Редактировать
               </div>
               <div class="item-dropdown-item" onclick="showNginxConfig(${item.id}); closeItemMenu(${item.id});">
@@ -2224,6 +2249,26 @@
         }
     }
 
+    async function toggleSkipAutoDns(id, skip) {
+        try {
+            const response = await fetch(`/api/items/${id}/toggle-skip-auto-dns`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ skip_auto_dns: skip })
+            });
+            if (response.ok) {
+                loadItems();
+            } else {
+                const error = await response.json();
+                alert('❌ ' + (error.error || 'Ошибка при изменении флага'));
+                loadItems();
+            }
+        } catch (e) {
+            alert('❌ Ошибка: ' + e.message);
+            loadItems();
+        }
+    }
+
     async function toggleActive(id, active) {
         const response = await fetch(`/api/items/${id}/toggle-active`, {
             method: 'PATCH',
@@ -2249,7 +2294,7 @@
         }
     }
 
-    function openEditModal(id, domain, dest, item3, ssl, active, notes) {
+    function openEditModal(id, domain, dest, item3, ssl, active, notes, skipAutoDns) {
         document.getElementById('editId').value = id;
         document.getElementById('editDomain').value = domain;
         document.getElementById('editDest').value = dest;
@@ -2257,6 +2302,7 @@
         document.getElementById('editNotes').value = notes;
         document.getElementById('editSsl').checked = ssl;
         document.getElementById('editActive').checked = active;
+        document.getElementById('editSkipAutoDns').checked = !!skipAutoDns;
         document.getElementById('editModal').style.display = 'block';
     }
 
@@ -2282,7 +2328,8 @@
             item3: document.getElementById('editItem3').value,
             notes: document.getElementById('editNotes').value,
             ssl: document.getElementById('editSsl').checked,
-            active: document.getElementById('editActive').checked
+            active: document.getElementById('editActive').checked,
+            skip_auto_dns: document.getElementById('editSkipAutoDns').checked
         };
 
         const response = await fetch(`/api/items/${id}`, {

@@ -654,7 +654,7 @@ app.get('/api/items', requireAuth, (req, res) => {
 });
 
 app.post('/api/items', requireAuth, async (req, res) => {
-    const { domain, dest, item3, ssl, active, notes } = req.body;
+    const { domain, dest, item3, ssl, active, notes, skip_auto_dns } = req.body;
 
     // Проверяем наличие SSL сертификата, если SSL включен
     if (ssl) {
@@ -674,7 +674,8 @@ app.post('/api/items', requireAuth, async (req, res) => {
         item3,
         ssl: ssl !== undefined ? ssl : false,
         active: active !== undefined ? active : true,
-        notes: notes || ''
+        notes: notes || '',
+        skip_auto_dns: skip_auto_dns === true
     };
     items.push(newItem);
     saveItems();
@@ -714,7 +715,7 @@ app.post('/api/items', requireAuth, async (req, res) => {
 
 app.put('/api/items/:id', requireAuth, async (req, res) => {
     const id = parseInt(req.params.id);
-    const { domain, dest, item3, ssl, active, notes } = req.body;
+    const { domain, dest, item3, ssl, active, notes, skip_auto_dns } = req.body;
     const itemIndex = items.findIndex(item => item.id === id);
 
     if (itemIndex !== -1) {
@@ -740,7 +741,8 @@ app.put('/api/items/:id', requireAuth, async (req, res) => {
             item3,
             ssl: ssl !== undefined ? ssl : items[itemIndex].ssl,
             active: active !== undefined ? active : items[itemIndex].active,
-            notes: notes !== undefined ? notes : (items[itemIndex].notes || '')
+            notes: notes !== undefined ? notes : (items[itemIndex].notes || ''),
+            skip_auto_dns: skip_auto_dns !== undefined ? skip_auto_dns === true : (items[itemIndex].skip_auto_dns === true)
         };
         saveItems();
 
@@ -935,6 +937,26 @@ app.patch('/api/items/:id/toggle-active', requireAuth, async (req, res) => {
     } else {
         res.status(404).json({ error: 'Запись не найдена' });
     }
+});
+
+// Переключение флага "не обновлять автоматически DNS"
+app.patch('/api/items/:id/toggle-skip-auto-dns', requireAuth, (req, res) => {
+    const id = parseInt(req.params.id);
+    const { skip_auto_dns } = req.body;
+    const itemIndex = items.findIndex(item => item.id === id);
+
+    if (itemIndex === -1) {
+        return res.status(404).json({ error: 'Запись не найдена' });
+    }
+
+    items[itemIndex].skip_auto_dns = skip_auto_dns === true;
+    saveItems();
+
+    res.json({
+        success: true,
+        id,
+        skip_auto_dns: items[itemIndex].skip_auto_dns
+    });
 });
 
 app.delete('/api/items/:id', requireAuth, async (req, res) => {
@@ -2219,6 +2241,17 @@ async function autoSyncAllDns() {
 
                 // Пропускаем неактивные записи
                 if (!item.active) {
+                    continue;
+                }
+
+                // Пропускаем записи с отключённой автосинхронизацией DNS
+                if (item.skip_auto_dns === true) {
+                    console.log(`⏭️  ${item.domain}: автосинхронизация DNS отключена, пропускаю`);
+                    details.push({
+                        domain: item.domain,
+                        skipped: true,
+                        message: 'Автосинхронизация DNS отключена для этой записи'
+                    });
                     continue;
                 }
 
