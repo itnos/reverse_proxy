@@ -100,6 +100,16 @@ fi
 [ -d /tmp/backup_configs/data ] && cp -r /tmp/backup_configs/data "$INSTALL_DIR/"
 [ -d /tmp/backup_configs/acme ] && cp -r /tmp/backup_configs/acme "$INSTALL_DIR/"
 
+# Дозаливаем недостающие файлы нового релиза поверх восстановленного configs/ (logrotate и т.п.)
+# cp -n не перезаписывает существующие, только дополняет
+cp -rn /tmp/reverse_proxy_update/*/configs/logrotate "$INSTALL_DIR/configs/" 2>/dev/null || true
+
+# Чистка гигантских старых логов nginx (освобождаем место, новые логи per-site будут в /var/log/nginx/sites/)
+echo "Очистка старых логов nginx..."
+rm -f /var/log/nginx/access.log /var/log/nginx/error.log
+rm -f /var/log/nginx/*.log.*
+rm -rf /var/log/nginx/sites
+
 # Очистка временных файлов
 echo "Очистка..."
 rm -f /tmp/reverse_proxy.zip

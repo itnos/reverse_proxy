@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { exec, execSync } = require('child_process');
 const util = require('util');
 const archiver = require('archiver');
 const AdmZip = require('adm-zip');
@@ -349,6 +349,14 @@ function createNginxConfig(domain, dest, ssl = false) {
             console.log(`🔐 Используется SSL-шаблон. Корневой домен: ${rootDomain} (Punycode: ${asciiRootDomain})`);
         }
 
+        // Создаём папку per-site логов в контейнере nginx (без неё nginx -t упадёт)
+        const asciiHost = toASCIIDomain(domain);
+        try {
+            execSync(`docker exec nginx_webserver mkdir -p /var/log/nginx/sites/${asciiHost}`, { stdio: 'pipe' });
+        } catch (e) {
+            console.warn(`⚠️  Не удалось создать папку логов для ${asciiHost}: ${e.message}`);
+        }
+
         // Сохраняем конфиг
         const configPath = path.join(NGINX_CONFIG_DIR, domain+'.conf');
         fs.writeFileSync(configPath, template, 'utf8');
@@ -426,6 +434,112 @@ async function applyNginxChanges() {
 
     // Если проверка прошла успешно, перезагружаем
     return await reloadNginx();
+}
+
+const MIGRATION_MARKER = '# logs-v2';
+
+// Перегенерирует nginx-конфиги для всех активных items.
+// options.force = true — перегенерировать всё (ручной триггер из UI).
+// options.force = false — только конфиги без маркера MIGRATION_MARKER (автомиграция).
+async function regenerateAllConfigs({ force = false } = {}) {
+    const result = { regenerated: [], skipped: [], errors: [], reverted: false };
+
+    let currentItems;
+    try {
+        const raw = fs.readFileSync(ITEMS_DATA_FILE, 'utf8');
+        currentItems = JSON.parse(raw).items || [];
+    } catch (e) {
+        console.error('❌ regenerateAllConfigs: не удалось прочитать items.json:', e.message);
+        result.errors.push({ error: 'items.json: ' + e.message });
+        return result;
+    }
+
+    const backupDir = `/tmp/configs_backup_${Date.now()}`;
+    fs.mkdirSync(backupDir, { recursive: true });
+
+    const toRegenerate = [];
+    for (const item of currentItems) {
+        if (!item.active) {
+            result.skipped.push({ domain: item.domain, reason: 'inactive' });
+            continue;
+        }
+        const configPath = path.join(NGINX_CONFIG_DIR, item.domain + '.conf');
+        let existing = '';
+        if (fs.existsSync(configPath)) {
+            existing = fs.readFileSync(configPath, 'utf8');
+        }
+        if (!force && existing.includes(MIGRATION_MARKER)) {
+            result.skipped.push({ domain: item.domain, reason: 'already has marker' });
+            continue;
+        }
+        if (existing) {
+            fs.writeFileSync(path.join(backupDir, item.domain + '.conf'), existing, 'utf8');
+        }
+        toRegenerate.push(item);
+    }
+
+    if (toRegenerate.length === 0) {
+        console.log('✅ regenerateAllConfigs: нечего регенерировать');
+        return result;
+    }
+
+    console.log(`🔁 regenerateAllConfigs: перегенерирую ${toRegenerate.length} конфиг(ов), бэкап: ${backupDir}`);
+
+    for (const item of toRegenerate) {
+        const r = createNginxConfig(item.domain, item.dest, item.ssl);
+        if (r.success) {
+            result.regenerated.push(item.domain);
+        } else {
+            result.errors.push({ domain: item.domain, error: r.error });
+        }
+    }
+
+    const apply = await applyNginxChanges();
+    if (!apply.success) {
+        console.error('❌ regenerateAllConfigs: nginx не прошёл проверку, откатываю конфиги из бэкапа');
+        for (const item of toRegenerate) {
+            const backupPath = path.join(backupDir, item.domain + '.conf');
+            const configPath = path.join(NGINX_CONFIG_DIR, item.domain + '.conf');
+            if (fs.existsSync(backupPath)) {
+                fs.copyFileSync(backupPath, configPath);
+            } else {
+                if (fs.existsSync(configPath)) fs.unlinkSync(configPath);
+            }
+        }
+        await applyNginxChanges();
+        result.reverted = true;
+        result.errors.push({ error: 'nginx validation failed: ' + (apply.error || apply.message) });
+    } else {
+        console.log(`✅ regenerateAllConfigs: успешно перегенерировано ${result.regenerated.length} конфиг(ов)`);
+    }
+
+    return result;
+}
+
+// Автомиграция при старте: ждём nginx, потом обновляем конфиги без маркера
+async function migrateConfigsToV2(maxAttempts = 12, delayMs = 5000) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const test = await testNginxConfig();
+        if (test.success) {
+            try {
+                const res = await regenerateAllConfigs({ force: false });
+                if (res.regenerated.length > 0) {
+                    console.log(`🎉 Миграция logs-v2: перегенерировано конфиги: ${res.regenerated.join(', ')}`);
+                }
+                if (res.reverted) {
+                    console.error('⚠️  Миграция logs-v2 откатилась, см. ошибки выше');
+                }
+                return res;
+            } catch (e) {
+                console.error('❌ Миграция logs-v2 упала:', e.message);
+                return null;
+            }
+        }
+        console.log(`⏳ Миграция logs-v2: nginx пока недоступен (попытка ${attempt}/${maxAttempts})`);
+        await new Promise(r => setTimeout(r, delayMs));
+    }
+    console.error('❌ Миграция logs-v2: nginx не поднялся, пропускаю. Воспользуйтесь кнопкой «Перегенерировать конфиги» в UI.');
+    return null;
 }
 
 // Функция для рекурсивного копирования папки
@@ -2387,6 +2501,28 @@ app.get('/api/items/:id/nginx-config', requireAuth, (req, res) => {
     }
 });
 
+// Ручной триггер перегенерации всех активных nginx-конфигов (fallback к автомиграции)
+app.post('/api/regenerate-all-configs', requireAuth, async (req, res) => {
+    try {
+        const result = await regenerateAllConfigs({ force: true });
+        if (result.errors.length > 0 && result.reverted) {
+            return res.status(500).json({
+                success: false,
+                message: 'Регенерация откатилась: nginx не принял новые конфиги',
+                ...result
+            });
+        }
+        res.json({
+            success: true,
+            message: `Перегенерировано ${result.regenerated.length} конфиг(ов), пропущено ${result.skipped.length}`,
+            ...result
+        });
+    } catch (error) {
+        console.error('❌ Ошибка regenerate-all-configs:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Запуск сервера
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Сервер запущен на http://localhost:${PORT}`);
@@ -2413,4 +2549,8 @@ app.listen(PORT, '0.0.0.0', () => {
             console.log(`   Причина: интервал синхронизации не установлен`);
         }
     }
+
+    // Автомиграция конфигов на формат logs-v2 (per-site логи)
+    console.log(`\n🔁 Проверка необходимости миграции nginx-конфигов на logs-v2...`);
+    migrateConfigsToV2().catch(e => console.error('Миграция logs-v2 завершилась с ошибкой:', e.message));
 });

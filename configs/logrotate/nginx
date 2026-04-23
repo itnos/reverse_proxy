@@ -1,0 +1,11 @@
+/var/log/nginx/*.log /var/log/nginx/sites/*/*.log {
+    daily
+    rotate 7
+    maxsize 100M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    sharedscripts
+}

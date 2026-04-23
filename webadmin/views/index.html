@@ -1017,6 +1017,9 @@
                 <div class="dropdown-menu-item" onclick="openChangePasswordModal(); closeMenu();">
                     🔒 Сменить пароль
                 </div>
+                <div class="dropdown-menu-item" onclick="regenerateAllConfigs(); closeMenu();">
+                    🔄 Перегенерировать конфиги
+                </div>
                 <a href="/logout" class="dropdown-menu-item danger">
                     🚪 Выход
                 </a>
@@ -1506,6 +1509,26 @@
             alert('❌ Ошибка при подключении к серверу: ' + error.message);
         }
     });
+
+    async function regenerateAllConfigs() {
+        if (!confirm('Перегенерировать все активные nginx-конфиги из шаблонов? При ошибке произойдёт автоматический откат.')) {
+            return;
+        }
+        try {
+            showLoading('Перегенерация nginx-конфигов...');
+            const response = await fetch('/api/regenerate-all-configs', { method: 'POST' });
+            const data = await response.json();
+            hideLoading();
+            if (response.ok && data.success) {
+                alert(`✅ ${data.message}` + (data.errors && data.errors.length ? `\n\nОшибки:\n${data.errors.map(e => e.domain + ': ' + e.error).join('\n')}` : ''));
+            } else {
+                alert(`❌ ${data.message || data.error || 'Ошибка перегенерации'}` + (data.reverted ? '\n⚠️ Старые конфиги восстановлены.' : ''));
+            }
+        } catch (error) {
+            hideLoading();
+            alert('❌ Ошибка: ' + error.message);
+        }
+    }
 
     async function exportSettings() {
         try {
