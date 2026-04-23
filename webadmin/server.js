@@ -438,6 +438,27 @@ async function applyNginxChanges() {
 
 const MIGRATION_MARKER = '# logs-v2';
 
+// Безусловное создание папок per-site логов для всех активных items.
+// Нужно на случай когда папка /var/log/nginx/sites была удалена (например update.sh),
+// а конфиги уже имеют маркер logs-v2 и миграция их не трогает.
+function ensureLogDirs() {
+    let currentItems;
+    try {
+        currentItems = JSON.parse(fs.readFileSync(ITEMS_DATA_FILE, 'utf8')).items || [];
+    } catch (e) {
+        return;
+    }
+    const domains = currentItems.filter(i => i.active).map(i => toASCIIDomain(i.domain));
+    if (domains.length === 0) return;
+    const list = domains.map(d => `/var/log/nginx/sites/${d}`).join(' ');
+    try {
+        execSync(`docker exec nginx_webserver mkdir -p ${list}`, { stdio: 'pipe' });
+        console.log(`📁 ensureLogDirs: убедился что существуют ${domains.length} папок per-site логов`);
+    } catch (e) {
+        console.warn(`⚠️  ensureLogDirs не смог создать папки: ${e.message}`);
+    }
+}
+
 // Перегенерирует nginx-конфиги для всех активных items.
 // options.force = true — перегенерировать всё (ручной триггер из UI).
 // options.force = false — только конфиги без маркера MIGRATION_MARKER (автомиграция).
@@ -521,6 +542,8 @@ async function migrateConfigsToV2(maxAttempts = 12, delayMs = 5000) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         const test = await testNginxConfig();
         if (test.success) {
+            // Всегда сначала убеждаемся что папки логов существуют
+            ensureLogDirs();
             try {
                 const res = await regenerateAllConfigs({ force: false });
                 if (res.regenerated.length > 0) {

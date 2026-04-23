@@ -104,11 +104,24 @@ fi
 # cp -n не перезаписывает существующие, только дополняет
 cp -rn /tmp/reverse_proxy_update/*/configs/logrotate "$INSTALL_DIR/configs/" 2>/dev/null || true
 
-# Чистка гигантских старых логов nginx (освобождаем место, новые логи per-site будут в /var/log/nginx/sites/)
+# Чистка гигантских старых логов nginx (освобождаем место)
 echo "Очистка старых логов nginx..."
 rm -f /var/log/nginx/access.log /var/log/nginx/error.log
 rm -f /var/log/nginx/*.log.*
-rm -rf /var/log/nginx/sites
+# Внутри sites/ чистим только файлы логов, сами папки per-site оставляем (nginx падает если их нет)
+find /var/log/nginx/sites -type f -name '*.log*' -delete 2>/dev/null || true
+
+# Пре-создаём папки логов для всех доменов, упомянутых в существующих конфигах.
+# Делается ДО docker compose up, чтобы nginx не падал на open() при старте.
+mkdir -p /var/log/nginx/sites
+if ls "$INSTALL_DIR"/configs/nginx/sites/*.conf >/dev/null 2>&1; then
+    grep -h 'access_log /var/log/nginx/sites/' "$INSTALL_DIR"/configs/nginx/sites/*.conf 2>/dev/null \
+        | sed -E 's|.*access_log /var/log/nginx/sites/([^/]+)/.*|\1|' \
+        | sort -u \
+        | while read -r domain; do
+            [ -n "$domain" ] && mkdir -p "/var/log/nginx/sites/$domain"
+        done
+fi
 
 # Очистка временных файлов
 echo "Очистка..."
