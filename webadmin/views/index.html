@@ -2044,10 +2044,9 @@
                         <span class="dns-status exists">☁️ DNS настроен</span>
                         <span class="dns-ip ${ipClass}">IP: ${item.cf_ip || 'N/A'}</span>
                         ${ipMismatch ? '<span style="color: #856404;">⚠️ IP не совпадает с сервером (' + serverIp + ')</span>' : ''}
-                        ${item.skip_auto_dns ? '<span style="color: #6c757d; font-size: 12px;">🚫 Авто-синхронизация DNS отключена</span>' : ''}
                         <div class="dns-actions">
                             <button class="dns-btn" onclick="syncDns(${item.id})" title="Синхронизировать DNS">🔄 Sync</button>
-                            <button class="dns-btn update" ${item.skip_auto_dns ? 'disabled style="opacity: 0.45; cursor: not-allowed;" title="Авто-DNS отключён для этой записи - снимите галочку чтобы обновлять"' : 'onclick="updateDns(' + item.id + ', \'' + escapeHtml(item.domain) + '\')" title="Обновить IP"'}>📝 Обновить IP</button>
+                            <button class="dns-btn update" ${item.skip_auto_dns ? 'disabled style="opacity: 0.45; cursor: not-allowed;" title="Авто-DNS отключён - снимите галочку чтобы обновлять"' : 'onclick="updateDns(' + item.id + ', \'' + escapeHtml(item.domain) + '\')" title="Обновить IP"'}>📝 Обновить IP</button>
                             <button class="dns-btn delete" onclick="deleteDns(${item.id}, '${escapeHtml(item.domain)}')" title="Удалить DNS запись">🗑️ Удалить DNS</button>
                         </div>
                     </div>
@@ -2056,10 +2055,9 @@
                 dnsInfoHtml = `
                     <div class="dns-info">
                         <span class="dns-status not-exists">❓ DNS не проверен</span>
-                        ${item.skip_auto_dns ? '<span style="color: #6c757d; font-size: 12px;">🚫 Авто-синхронизация DNS отключена</span>' : ''}
                         <div class="dns-actions">
                             <button class="dns-btn" onclick="syncDns(${item.id})" title="Проверить DNS">🔄 Проверить</button>
-                            <button class="dns-btn create" ${item.skip_auto_dns ? 'disabled style="opacity: 0.45; cursor: not-allowed;" title="Авто-DNS отключён для этой записи - снимите галочку чтобы создавать/обновлять"' : 'onclick="createDns(' + item.id + ', \'' + escapeHtml(item.domain) + '\')" title="Создать DNS запись"'}>➕ Создать DNS</button>
+                            <button class="dns-btn create" ${item.skip_auto_dns ? 'disabled style="opacity: 0.45; cursor: not-allowed;" title="Авто-DNS отключён - снимите галочку чтобы создавать"' : 'onclick="createDns(' + item.id + ', \'' + escapeHtml(item.domain) + '\')" title="Создать DNS запись"'}>➕ Создать DNS</button>
                         </div>
                     </div>
                 `;
