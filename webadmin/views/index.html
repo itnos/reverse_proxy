@@ -1066,9 +1066,9 @@
     // Вызываем при загрузке страницы
     loadAppVersion();
 
-    // Авто-выход по бездействию (30 секунд)
+    // Авто-выход по бездействию (30 минут)
     (function setupIdleLogout() {
-        const IDLE_TIMEOUT_MS = 30 * 1000;
+        const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
         let idleTimer = null;
         function doLogout() {
             window.location.href = '/logout';
