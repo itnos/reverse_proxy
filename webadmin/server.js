@@ -105,10 +105,15 @@ function cloudflareRequest(method, path, token, data = null) {
     });
 }
 
+// Сервис определения внешнего IP сервера.
+// ВАЖНО: рабочий сервис нужно проверять НА САМОМ СЕРВЕРЕ (curl -s -4 <url>) -
+// при VPN/туннеле часть сервисов возвращает IP туннеля, а не реальный внешний.
+const IP_SERVICE_URL = 'https://4.ident.me';
+
 // Функция для получения внешнего IP сервера
 async function getServerExternalIp() {
     return new Promise((resolve, reject) => {
-        https.get('https://ifconfig.me/ip', (res) => {
+        https.get(IP_SERVICE_URL, (res) => {
             let data = '';
 
             res.on('data', (chunk) => {
