@@ -1,2 +1,15 @@
 data/
 .idea
+.claude/
+.DS_Store
+
+# Сертификаты и токены (acme/account.conf содержит CloudFlare токен!)
+acme/
+acme-webroot/
+
+# Локальные логи
+logs/
+
+# Пользовательские nginx-конфиги (генерируются вебадмином)
+configs/nginx/sites/*.conf
+!configs/nginx/sites/default.conf

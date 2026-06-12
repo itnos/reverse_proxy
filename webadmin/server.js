@@ -436,6 +436,89 @@ async function applyNginxChanges() {
     return await reloadNginx();
 }
 
+// ============================================
+// Слежение за обновлением SSL-сертификатов
+// ============================================
+// Контейнер acme_sh продлевает сертификаты по крону, но nginx загружает
+// сертификаты в память при старте/reload. Без перезагрузки nginx продолжает
+// отдавать старый (просроченный) сертификат, даже когда файлы на диске свежие.
+const CERT_WATCH_STATE_FILE = path.join(DATA_DIR, 'cert-reload-state.json');
+const CERT_WATCH_INTERVAL_MS = 15 * 60 * 1000;      // проверка каждые 15 минут
+const CERT_WATCH_STARTUP_DELAY_MS = 60 * 1000;      // даём nginx подняться после старта
+
+// Максимальный mtime среди всех fullchain.cer в папках сертификатов
+function getLatestCertMtime() {
+    let latest = 0;
+    try {
+        for (const entry of fs.readdirSync(ACME_DIR)) {
+            const certFile = path.join(ACME_DIR, entry, 'fullchain.cer');
+            try {
+                const mtime = fs.statSync(certFile).mtimeMs;
+                if (mtime > latest) latest = mtime;
+            } catch (e) {
+                // не папка с сертификатом (account.conf, ca и т.п.) - пропускаем
+            }
+        }
+    } catch (e) {
+        console.error(`⚠️  Слежение за сертификатами: не удалось прочитать ${ACME_DIR}:`, e.message);
+    }
+    return latest;
+}
+
+function loadCertWatchState() {
+    try {
+        return JSON.parse(fs.readFileSync(CERT_WATCH_STATE_FILE, 'utf8'));
+    } catch (e) {
+        return null;
+    }
+}
+
+function saveCertWatchState(lastReloadedMtime) {
+    try {
+        fs.writeFileSync(CERT_WATCH_STATE_FILE, JSON.stringify({
+            lastReloadedMtime,
+            updatedAt: new Date().toISOString()
+        }, null, 2), 'utf8');
+    } catch (e) {
+        console.error('⚠️  Не удалось сохранить состояние слежения за сертификатами:', e.message);
+    }
+}
+
+async function checkCertsAndReloadNginx() {
+    const latest = getLatestCertMtime();
+    if (!latest) return; // сертификатов пока нет
+
+    const state = loadCertWatchState();
+    const isFirstRun = !state || !state.lastReloadedMtime;
+
+    if (!isFirstRun && latest <= state.lastReloadedMtime) return; // изменений нет
+
+    // При первом запуске (нет сохранённого состояния) тоже перезагружаем:
+    // неизвестно, какие сертификаты nginx держит в памяти, а файлы могли
+    // обновиться до того, как watcher успел зафиксировать отправную точку
+    console.log(isFirstRun
+        ? '🔐 Инициализация слежения за сертификатами - перезагружаем nginx для гарантии актуальности...'
+        : '🔐 Обнаружены обновлённые SSL-сертификаты - перезагружаем nginx...');
+
+    const result = await applyNginxChanges();
+    if (result.success) {
+        saveCertWatchState(latest);
+        console.log('✅ Nginx подхватил обновлённые сертификаты');
+    } else {
+        // Состояние не сохраняем - повторим попытку в следующем цикле
+        console.error('❌ Не удалось перезагрузить nginx после обновления сертификатов:', result.error || result.message);
+    }
+}
+
+function startCertWatcher() {
+    const run = () => checkCertsAndReloadNginx()
+        .catch(e => console.error('Ошибка слежения за сертификатами:', e.message));
+    setTimeout(() => {
+        run();
+        setInterval(run, CERT_WATCH_INTERVAL_MS);
+    }, CERT_WATCH_STARTUP_DELAY_MS);
+}
+
 const MIGRATION_MARKER = '# logs-v2';
 
 // Безусловное создание папок per-site логов для всех активных items.
@@ -2609,4 +2692,9 @@ app.listen(PORT, '0.0.0.0', () => {
     // Автомиграция конфигов на формат logs-v2 (per-site логи)
     console.log(`\n🔁 Проверка необходимости миграции nginx-конфигов на logs-v2...`);
     migrateConfigsToV2().catch(e => console.error('Миграция logs-v2 завершилась с ошибкой:', e.message));
+
+    // Слежение за продлением сертификатов: acme.sh обновляет файлы по крону,
+    // nginx нужно перезагрузить, чтобы он подхватил новые сертификаты
+    console.log(`\n🔐 Запуск слежения за обновлением SSL-сертификатов (каждые ${CERT_WATCH_INTERVAL_MS / 60000} мин)`);
+    startCertWatcher();
 });
