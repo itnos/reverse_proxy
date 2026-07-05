@@ -108,7 +108,10 @@ function cloudflareRequest(method, path, token, data = null) {
 // Сервис определения внешнего IP сервера.
 // ВАЖНО: рабочий сервис нужно проверять НА САМОМ СЕРВЕРЕ (curl -s -4 <url>) -
 // при VPN/туннеле часть сервисов возвращает IP туннеля, а не реальный внешний.
-const IP_SERVICE_URL = 'https://4.ident.me';
+// 2026-07-05: 4.ident.me, ifconfig.me, ipify, icanhazip, 2ip.ru и др. стали
+// уходить через туннель и возвращать 91.199.147.144 вместо реального IP.
+// Проверено с сервера: myip.wtf и DNS-запрос myip.opendns.com дают верный IP.
+const IP_SERVICE_URL = 'https://myip.wtf/text';
 
 // Функция для получения внешнего IP сервера
 async function getServerExternalIp() {
